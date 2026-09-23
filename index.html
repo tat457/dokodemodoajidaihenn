@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>どこでもドア タイムAR - 日本の16時代へ旅しよう</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;700;900&display=swap" rel="stylesheet">
+    <!-- Three.js & Controls & GSAP -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Zen Maru Gothic', sans-serif;
+            overflow: hidden;
+            user-select: none;
+            background-color: #0b0f19;
+            color: #ffffff;
+        }
+        
+        .glass-panel {
+            background: rgba(18, 24, 38, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .glass-btn {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-btn:hover, .glass-btn:active {
+            background: rgba(255, 255, 255, 0.25);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .era-card {
+            transition: all 0.3s ease;
+            cursor: pointer;
+            min-width: 110px;
+        }
+
+        .era-card.active {
+            border-color: #ff4757;
+            background: rgba(255, 71, 87, 0.25);
+            box-shadow: 0 0 15px rgba(255, 71, 87, 0.5);
+            transform: scale(1.03);
+        }
+
+        /* どこでもドアテーマの特製ピンクボタン */
+        .dokodemo-btn {
+            background: linear-gradient(135deg, #ff6b81, #ff4757);
+            box-shadow: 0 4px 15px rgba(255, 71, 87, 0.4);
+            transition: all 0.3s ease;
+        }
+
+        .dokodemo-btn:hover {
+            background: linear-gradient(135deg, #ff4757, #ff6b81);
+            box-shadow: 0 6px 20px rgba(255, 71, 87, 0.6);
+            transform: scale(1.02);
+        }
+
+        /* アニメーション用パルス効果 */
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 15px rgba(255, 71, 87, 0.4); }
+            50% { box-shadow: 0 0 30px rgba(255, 71, 87, 0.8); }
+        }
+
+        .glow-effect {
+            animation: pulse-glow 2s infinite;
+        }
+
+        #webgl-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        #camera-video {
+            display: none;
+        }
+
+        /* 横スクロールバーのカスタマイズ */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen overflow-hidden select-none">
+
+    <!-- 3D Canvas -->
+    <canvas id="webgl-canvas"></canvas>
+
+    <!-- UI Overlay Layer -->
+    <div class="relative z-10 flex flex-col justify-between h-full p-4 pointer-events-none">
+        
+        <!-- Header & Status Indicator -->
+        <div class="flex flex-col items-center space-y-2 w-full max-w-4xl mx-auto pointer-events-auto">
+            <header class="flex items-center justify-between w-full">
+                <div class="glass-panel px-4 py-2 rounded-2xl flex items-center space-x-3 shadow-lg">
+                    <div class="w-10 h-10 rounded-xl bg-pink-500 flex items-center justify-center text-white shadow-md">
+                        <i class="fa-solid font-bold text-xl fa-door-open"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-base sm:text-lg font-bold text-pink-400 leading-tight">どこでもドア タイムマシン</h1>
+                        <p class="text-xs text-gray-300">日本の16時代 360°パノラマ旅</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-2">
+                    <!-- 音声ON/OFF -->
+                    <button id="btn-sound-toggle" class="glass-btn px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-white">
+                        <i id="sound-icon" class="fa-solid fa-volume-high"></i>
+                    </button>
+                    <!-- 時代ガイド -->
+                    <button id="btn-info" class="glass-btn px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold text-yellow-300">
+                        <i class="fa-solid fa-book-open"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Status Indicator Badge (Top centered) -->
+            <div id="instruction-badge" class="glass-panel px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium text-white shadow-xl inline-flex items-center space-x-2 border-pink-500/30 bg-black/50 backdrop-blur-md">
+                <i class="fa-solid fa-compass text-pink-400 animate-spin" style="animation-duration: 6s;"></i>
+                <span id="instruction-text">ドアを開けて、過去の時代を覗いてみよう！</span>
+            </div>
+        </div>
+
+        <!-- Bottom Controls Footer -->
+        <footer class="w-full max-w-4xl mx-auto flex flex-col space-y-3 pointer-events-auto mb-2">
+            
+            <!-- 16 Eras Selection Scroll View -->
+            <div class="glass-panel p-2.5 rounded-2xl flex space-x-2 overflow-x-auto no-scrollbar scroll-smooth">
+                <!-- 16個の時代カードはJavaScriptで動的に生成・制御します -->
+                <div id="era-cards-container" class="flex space-x-2"></div>
+            </div>
+
+            <!-- Action Buttons Bar -->
+            <div class="flex items-center space-x-3">
+                <button id="btn-toggle-door" class="flex-1 dokodemo-btn py-3 px-6 rounded-2xl font-bold text-white text-base sm:text-lg flex items-center justify-center space-x-2 glow-effect">
+                    <i id="door-btn-icon" class="fa-solid fa-door-open"></i>
+                    <span id="door-btn-text">どこでもドアを開ける</span>
+                </button>
+                
+                <button id="btn-enter-era" class="hidden flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 py-3 px-6 rounded-2xl font-bold text-white text-base sm:text-lg flex items-center justify-center space-x-2 shadow-lg transition-all">
+                    <i class="fa-solid fa-shoe-prints"></i>
+                    <span>時代の中に潜入する！(360°)</span>
+                </button>
+
+                <button id="btn-exit-era" class="hidden flex-1 bg-gradient-to-r from-gray-700 to-gray-900 hover:from-gray-800 hover:to-black py-3 px-6 rounded-2xl font-bold text-white text-base sm:text-lg flex items-center justify-center space-x-2 border border-gray-600 shadow-lg">
+                    <i class="fa-solid fa-rotate-left"></i>
+                    <span>ドアの前に戻る</span>
+                </button>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Info Modal (時代豆知識ダイアログ) -->
+    <div id="info-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md hidden opacity-0 transition-opacity duration-300 pointer-events-auto">
+        <div class="glass-panel w-full max-w-lg p-6 rounded-3xl border-pink-500/30 relative shadow-2xl">
+            <button id="btn-close-modal" class="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+            
+            <div class="flex items-center space-x-3 mb-4">
+                <div id="modal-era-icon" class="w-12 h-12 rounded-2xl bg-pink-500/30 border border-pink-500 flex items-center justify-center text-pink-400 text-2xl">
+                    <i class="fa-solid fa-campground"></i>
+                </div>
+                <div>
+                    <h2 id="modal-era-title" class="text-xl font-bold text-white">時代名</h2>
+                    <p id="modal-era-subtitle" class="text-xs text-pink-300">副題</p>
+                </div>
+            </div>
+
+            <div id="modal-era-body" class="text-sm text-gray-200 leading-relaxed space-y-3 max-h-60 overflow-y-auto pr-2">
+                <!-- 動的に生成される説明文 -->
+            </div>
+
+            <div class="mt-6 pt-4 border-t border-white/10 flex justify-end">
+                <button id="btn-modal-action" class="dokodemo-btn px-6 py-2.5 rounded-xl font-bold text-white text-sm">
+                    了解！過去を探検する
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* =========================================================================
+         * 1. 音響システム (Web Audio API による効果音)
+         * ========================================================================= */
+        class TimeAudioEngine {
+            constructor() {
+                this.ctx = null;
+                this.enabled = true;
+                this.isInitialized = false;
+            }
+
+            init() {
+                if (this.isInitialized) return;
+                try {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    this.ctx = new AudioCtx();
+                    this.isInitialized = true;
+                } catch (e) {
+                    console.warn("Web Audio API not supported", e);
+                }
+            }
+
+            playDoorOpenSFX() {
+                if (!this.enabled || !this.ctx) return;
+                this.init();
+                const now = this.ctx.currentTime;
+                
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(220, now);
+                osc.frequency.exponentialRampToValueAtTime(880, now + 0.8);
+                
+                gain.gain.setValueAtTime(0.01, now);
+                gain.gain.linearRampToValueAtTime(0.3, now + 0.2);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.8);
+
+                this.playClickSound(180, 0.15);
+            }
+
+            playWarpSFX() {
+                if (!this.enabled || !this.ctx) return;
+                this.init();
+                const now = this.ctx.currentTime;
+
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.exponentialRampToValueAtTime(1200, now + 1.2);
+
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.linearRampToValueAtTime(0.4, now + 0.6);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 1.2);
+            }
+
+            playClickSound(freq = 440, duration = 0.05) {
+                if (!this.enabled || !this.ctx) return;
+                this.init();
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.frequency.setValueAtTime(freq, now);
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + duration);
+            }
+        }
+
+        const audioEngine = new TimeAudioEngine();
+
+        /* =========================================================================
+         * 2. 16時代の詳細データ & 360度パノラマ画像URL設定箇所
+         * ========================================================================= */
+        /* 
+         * 💡【手動で360度パノラマ画像を変更する場合】
+         * 各時代の `panoramaUrl` に、ご自身で用意された360度等角投影(Equirectangular)パノラマ画像の
+         * ファイルパスやURLを設定してください。
+         * 例: "images/jomon_360.jpg" や "https://example.com/360.jpg"
+         * ※未設定または読込失敗時は自動的に専用カラーグラデーションにフォールバックします。
+         */
+        const ERA_DATA = {
+            jomon: {
+                id: "jomon",
+                title: "縄文時代",
+                year: "BC 13000年〜",
+                icon: "fa-campground",
+                color: "#d97706",
+                panoramaUrl: "", // 360度パノラマ画像URL設定箇所
+                description: "<p>縄文土器や竪穴住居が作られ、自然と調和しながら狩猟・採集・魚労を行った時代です。</p>"
+            },
+            yayoi: {
+                id: "yayoi",
+                title: "弥生時代",
+                year: "BC 10世紀〜",
+                icon: "fa-wheat-awn",
+                color: "#84cc16",
+                panoramaUrl: "",
+                description: "<p>大陸から稲作文化や金属器（青銅器・鉄器）が伝わり、環濠集落や邪馬台国が誕生した時代です。</p>"
+            },
+            kofun: {
+                id: "kofun",
+                title: "古墳時代",
+                year: "3世紀中頃〜",
+                icon: "fa-monument",
+                color: "#10b981",
+                panoramaUrl: "",
+                description: "<p>前方後円墳などの巨大な古墳が各地に築かれ、ヤマト王権が日本列島を統一していった時代です。</p>"
+            },
+            asuka: {
+                title: "飛鳥時代",
+                year: "592年〜",
+                icon: "fa-vihara",
+                color: "#06b6d4",
+                panoramaUrl: "",
+                description: "<p>聖徳太子や天智天皇らが活躍し、法隆寺の建立や推古朝・大化の改新など仏教文化と中央集権化が進んだ時代です。</p>"
+            },
+            nara: {
+                title: "奈良時代",
+                year: "710年〜",
+                icon: "fa-place-of-worship",
+                color: "#3b82f6",
+                panoramaUrl: "",
+                description: "<p>平城京を中心に、大仏で有名な東大寺や正倉院が建てられ、天平文化が花開いた時代です。</p>"
+            },
+            heian: {
+                title: "平安時代",
+                year: "794年〜",
+                icon: "fa-torii-gate",
+                color: "#ec4899",
+                panoramaUrl: "",
+                description: "<p>平安京（京都）へ都が移り、源氏物語などの国風文化や貴族の雅な暮らしが繁栄した時代です。</p>"
+            },
+            kamakura: {
+                title: "鎌倉時代",
+                year: "1185年〜",
+                icon: "fa-khanda",
+                color: "#8b5cf6",
+                panoramaUrl: "",
+                description: "<p>源頼朝が鎌倉幕府を開き、武士による政治が本格的に始まった力強い武家社会の時代です。</p>"
+            },
+            nanbokucho: {
+                title: "南北朝時代",
+                year: "1336年〜",
+                icon: "fa-shield-halved",
+                color: "#6366f1",
+                panoramaUrl: "",
+                description: "<p>吉野の南朝と京都の北朝に分かれ、全国の武士たちが覇権を争った動乱の時代です。</p>"
+            },
+            muromachi: {
+                title: "室町時代",
+                year: "1336年〜",
+                icon: "fa-landmark",
+                color: "#0284c7",
+                panoramaUrl: "",
+                description: "<p>足利尊氏が開いた幕府の下、金閣寺・銀閣寺に代表される北山・東山文化や能・水墨画が育まれた時代です。</p>"
+            },
+            sengoku: {
+                title: "戦国時代",
+                year: "1467年〜",
+                icon: "fa-chess-rook",
+                color: "#ef4444",
+                panoramaUrl: "",
+                description: "<p>応仁の乱から始まり、全国の戦国大名たちが群雄割拠し天下統一を目指して鎬を削った時代です。</p>"
+            },
+            azuchimomoyama: {
+                title: "安土桃山時代",
+                year: "1568年〜",
+                icon: "fa-dungeon",
+                color: "#f97316",
+                panoramaUrl: "",
+                description: "<p>織田信長と豊臣秀吉が天下を統一。壮麗な城郭建築や千利休の茶の湯文化が栄えた時代です。</p>"
+            },
+            edo: {
+                title: "江戸時代",
+                year: "1603年〜",
+                icon: "fa-mountain",
+                color: "#dc2626",
+                panoramaUrl: "",
+                description: "<p>徳川家康が開いた太平の世が250年以上続き、浮世絵や歌舞伎、町人文化が爛漫と咲き誇った時代です。</p>"
+            },
+            meiji: {
+                title: "明治時代",
+                year: "1868年〜",
+                icon: "fa-train",
+                color: "#059669",
+                panoramaUrl: "",
+                description: "<p>文明開化により西洋の技術や制度が怒涛のように導入され、急速に近代化を遂げた時代です。</p>"
+            },
+            taisho: {
+                title: "大正時代",
+                year: "1912年〜",
+                icon: "fa-lightbulb",
+                color: "#ea580c",
+                panoramaUrl: "",
+                description: "<p>「大正ロマン」と呼ばれる個性を尊重するモダンな都市文化や民主主義の潮流が花開いた時代です。</p>"
+            },
+            showa: {
+                title: "昭和時代",
+                year: "1926年〜",
+                icon: "fa-broadcast-tower",
+                color: "#0284c7",
+                panoramaUrl: "",
+                description: "<p>高度経済成長期を経て、東京タワーの建設や家電の普及など活気とレトロな温かみに満ちた時代です。</p>"
+            },
+            heisei: {
+                title: "平成時代",
+                year: "1989年〜",
+                icon: "fa-mobile-screen-button",
+                color: "#a855f7",
+                panoramaUrl: "",
+                description: "<p>インターネットや携帯電話が急速に普及し、IT化とデジタル文化が世界規模で進展した時代です。</p>"
+            }
+        };
+
+        const ERA_KEYS = Object.keys(ERA_DATA);
+
+        /* =========================================================================
+         * 3. Three.js 360°パノラマドーム & どこでもドア構築
+         * ========================================================================= */
+        let scene, camera, renderer, controls;
+        let doorGroup, doorPivot, doorLeaf;
+        let panoramaSphere, panoramaTextureLoader;
+        let isDoorOpen = false;
+        let isInsideEra = false;
+        let currentEra = 'jomon';
+
+        function init3D() {
+            const canvas = document.getElementById('webgl-canvas');
+            
+            // Scene & Camera
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0b0f19);
+
+            camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 1.3, 3.2);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+            // OrbitControls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 + 0.1;
+            controls.minDistance = 0.2;
+            controls.maxDistance = 12;
+            controls.target.set(0, 1.2, 0);
+
+            panoramaTextureLoader = new THREE.TextureLoader();
+
+            // ライティング
+            setupLighting();
+
+            // 床（グリッド）
+            createGround();
+
+            // どこでもドア構築
+            createDokodemoDoor();
+
+            // 360度パノラマ背景ドーム作成
+            createPanoramaSphere();
+
+            // UIの時代選択タブ動的生成
+            renderEraTabs();
+
+            // イベントリスナー
+            window.addEventListener('resize', onWindowResize);
+            setupRaycaster();
+
+            // アニメーションループ開始
+            animate();
+        }
+
+        function setupLighting() {
+            const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(5, 10, 7);
+            scene.add(dirLight);
+        }
+
+        function createGround() {
+            const grid = new THREE.GridHelper(30, 30, 0xff4757, 0x334155);
+            grid.position.y = 0;
+            scene.add(grid);
+        }
+
+        function createDokodemoDoor() {
+            doorGroup = new THREE.Group();
+            doorGroup.position.set(0, 0, 0);
+
+            const frameWidth = 1.3;
+            const frameHeight = 2.4;
+            const frameDepth = 0.12;
+            const thickness = 0.1;
+
+            const pinkMaterial = new THREE.MeshStandardMaterial({
+                color: 0xff3b5c,
+                roughness: 0.3,
+                metalness: 0.1
+            });
+
+            const goldMaterial = new THREE.MeshStandardMaterial({
+                color: 0xfbc02d,
+                roughness: 0.2,
+                metalness: 0.8
+            });
+
+            // 外枠
+            const leftFrame = new THREE.Mesh(new THREE.BoxGeometry(thickness, frameHeight, frameDepth), pinkMaterial);
+            leftFrame.position.set(-frameWidth / 2 + thickness / 2, frameHeight / 2, 0);
+            doorGroup.add(leftFrame);
+
+            const rightFrame = new THREE.Mesh(new THREE.BoxGeometry(thickness, frameHeight, frameDepth), pinkMaterial);
+            rightFrame.position.set(frameWidth / 2 - thickness / 2, frameHeight / 2, 0);
+            doorGroup.add(rightFrame);
+
+            const topFrame = new THREE.Mesh(new THREE.BoxGeometry(frameWidth, thickness, frameDepth), pinkMaterial);
+            topFrame.position.set(0, frameHeight - thickness / 2, 0);
+            doorGroup.add(topFrame);
+
+            // 扉（回転軸ピボット）
+            doorPivot = new THREE.Group();
+            doorPivot.position.set(-frameWidth / 2 + thickness, 0, 0);
+
+            const innerWidth = frameWidth - thickness * 2;
+            const innerHeight = frameHeight - thickness;
+
+            doorLeaf = new THREE.Mesh(new THREE.BoxGeometry(innerWidth, innerHeight, 0.06), pinkMaterial);
+            doorLeaf.position.set(innerWidth / 2, innerHeight / 2, 0);
+            doorLeaf.name = "clickableDoor";
+
+            // ドアノブ
+            const knobBase = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.08, 16), goldMaterial);
+            knobBase.rotation.x = Math.PI / 2;
+            knobBase.position.set(innerWidth - 0.12, innerHeight / 2, 0.05);
+
+            const knobBall = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 16), goldMaterial);
+            knobBall.position.set(innerWidth - 0.12, innerHeight / 2, 0.09);
+
+            doorLeaf.add(knobBase);
+            doorLeaf.add(knobBall);
+
+            doorPivot.add(doorLeaf);
+            doorGroup.add(doorPivot);
+
+            scene.add(doorGroup);
+        }
+
+        /* 360度パノラマ表示用球体の作成 */
+        function createPanoramaSphere() {
+            // 半径30の巨大な内向き球体
+            const geometry = new THREE.SphereGeometry(40, 60, 40);
+            // 内側にテクスチャを貼るため Side: BackSide
+            const material = new THREE.MeshBasicMaterial({
+                side: THREE.BackSide
+            });
+            panoramaSphere = new THREE.Mesh(geometry, material);
+            
+            // 内側からの視点による左右反転（鏡文字）を修正
+            panoramaSphere.scale.set(-1, 1, 1);
+
+            // ドアの奥（中心をドア付近に配置）
+            panoramaSphere.position.set(0, 1.2, -5);
+            scene.add(panoramaSphere);
+
+            // 初期時代のパノラマ読み込み
+            loadEraPanorama('jomon');
+        }
+
+        // キャンバスで動的に美しい時代のグラデーションパノラマを生成（画像フォールバック用）
+        function createFallbackPanoramaTexture(eraKey) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            const data = ERA_DATA[eraKey];
+            const hexColor = data ? data.color : '#ff4757';
+
+            // 背景グラデーション
+            const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            grad.addColorStop(0, '#0b0f19');
+            grad.addColorStop(0.5, hexColor);
+            grad.addColorStop(1, '#111827');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 光のグリッドラインとグリッド描画
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < canvas.width; i += 64) {
+                ctx.beginPath();
+                ctx.moveTo(i, 0);
+                ctx.lineTo(i, canvas.height);
+                ctx.stroke();
+            }
+            for (let j = 0; j < canvas.height; j += 64) {
+                ctx.beginPath();
+                ctx.moveTo(0, j);
+                ctx.lineTo(canvas.width, j);
+                ctx.stroke();
+            }
+
+            // 時代タイトルテキスト描画
+            ctx.font = 'bold 48px sans-serif';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.fillText(`【360° Panorama】${data.title} (${data.year})`, canvas.width / 2, canvas.height / 2);
+            ctx.font = '24px sans-serif';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.fillText(`(手動設定でパノラマ画像URLを追加できます)`, canvas.width / 2, canvas.height / 2 + 50);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            return texture;
+        }
+
+        // 360度パノラマテクスチャの読み込み・適用
+        function loadEraPanorama(eraKey) {
+            const data = ERA_DATA[eraKey];
+            if (!data) return;
+
+            if (data.panoramaUrl && data.panoramaUrl.trim() !== "") {
+                panoramaTextureLoader.load(
+                    data.panoramaUrl,
+                    (texture) => {
+                        panoramaSphere.material.map = texture;
+                        panoramaSphere.material.needsUpdate = true;
+                    },
+                    undefined,
+                    () => {
+                        // エラー時フォールバック
+                        panoramaSphere.material.map = createFallbackPanoramaTexture(eraKey);
+                        panoramaSphere.material.needsUpdate = true;
+                    }
+                );
+            } else {
+                panoramaSphere.material.map = createFallbackPanoramaTexture(eraKey);
+                panoramaSphere.material.needsUpdate = true;
+            }
+        }
+
+        function renderEraTabs() {
+            const container = document.getElementById('era-cards-container');
+            container.innerHTML = '';
+
+            ERA_KEYS.forEach(key => {
+                const era = ERA_DATA[key];
+                const card = document.createElement('div');
+                card.className = `era-card flex-shrink-0 px-3.5 py-2 rounded-xl glass-btn text-center border ${key === currentEra ? 'active' : ''}`;
+                card.setAttribute('data-era', key);
+                card.innerHTML = `
+                    <div class="text-[10px] text-gray-300 leading-tight">${era.year}</div>
+                    <div class="text-xs font-bold text-white mt-0.5"><i class="fa-solid ${era.icon} mr-1" style="color:${era.color}"></i>${era.title}</div>
+                `;
+
+                card.addEventListener('click', () => {
+                    document.querySelectorAll('.era-card').forEach(c => c.classList.remove('active'));
+                    card.classList.add('active');
+                    audioEngine.playClickSound(520, 0.08);
+
+                    currentEra = key;
+                    loadEraPanorama(key);
+                    updateUIState();
+                });
+
+                container.appendChild(card);
+            });
+        }
+
+        let raycaster = new THREE.Raycaster();
+        let mouse = new THREE.Vector2();
+
+        function setupRaycaster() {
+            const canvas = document.getElementById('webgl-canvas');
+            canvas.addEventListener('pointerdown', (event) => {
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+                raycaster.setFromCamera(mouse, camera);
+                if (doorLeaf) {
+                    const intersects = raycaster.intersectObject(doorLeaf, true);
+                    if (intersects.length > 0) {
+                        toggleDoor();
+                    }
+                }
+            });
+        }
+
+        function toggleDoor() {
+            isDoorOpen = !isDoorOpen;
+            if (isDoorOpen) {
+                audioEngine.playDoorOpenSFX();
+                gsap.to(doorPivot.rotation, {
+                    y: -Math.PI * 0.65,
+                    duration: 1.2,
+                    ease: "back.out(1.2)"
+                });
+            } else {
+                audioEngine.playClickSound(300, 0.1);
+                gsap.to(doorPivot.rotation, {
+                    y: 0,
+                    duration: 0.8,
+                    ease: "power2.inOut"
+                });
+                if (isInsideEra) {
+                    exitEraWorld();
+                }
+            }
+            updateUIState();
+        }
+
+        // ドアをくぐって360度パノラマ空間の中に完全進入
+        function enterEraWorld() {
+            if (!isDoorOpen) return;
+            isInsideEra = true;
+            audioEngine.playWarpSFX();
+
+            // ドアを通り抜けてパノラマ球体の中心（Z = -5）付近へカメラ移動
+            gsap.to(camera.position, {
+                x: 0,
+                y: 1.2,
+                z: -4.8,
+                duration: 1.6,
+                ease: "power2.inOut",
+                onUpdate: () => controls.target.set(0, 1.2, -5),
+                onComplete: () => {
+                    controls.target.set(0, 1.2, -5.1);
+                    updateUIState();
+                }
+            });
+        }
+
+        function exitEraWorld() {
+            isInsideEra = false;
+            gsap.to(camera.position, {
+                x: 0,
+                y: 1.3,
+                z: 3.2,
+                duration: 1.5,
+                ease: "power2.inOut",
+                onUpdate: () => controls.target.set(0, 1.2, 0),
+                onComplete: () => {
+                    controls.target.set(0, 1.2, 0);
+                    updateUIState();
+                }
+            });
+        }
+
+        function updateUIState() {
+            const doorBtnText = document.getElementById('door-btn-text');
+            const doorBtnIcon = document.getElementById('door-btn-icon');
+            const btnEnter = document.getElementById('btn-enter-era');
+            const btnExit = document.getElementById('btn-exit-era');
+            const btnToggle = document.getElementById('btn-toggle-door');
+            const instructionText = document.getElementById('instruction-text');
+
+            if (!instructionText) return;
+
+            const eraTitle = ERA_DATA[currentEra].title;
+
+            if (isInsideEra) {
+                instructionText.textContent = `${eraTitle} (360°パノラマ) の世界を探検中！画面をスワイプで見渡せます`;
+                btnToggle.classList.add('hidden');
+                btnEnter.classList.add('hidden');
+                btnExit.classList.remove('hidden');
+            } else if (isDoorOpen) {
+                instructionText.textContent = `ドアの中に【${eraTitle}】の映像が見えます！「潜入する」を押して中へ！`;
+                doorBtnText.textContent = "ドアを閉める";
+                doorBtnIcon.className = "fa-solid fa-door-closed";
+                btnEnter.classList.remove('hidden');
+                btnExit.classList.add('hidden');
+                btnToggle.classList.remove('hidden');
+            } else {
+                instructionText.textContent = "ドアを開けて、過去の時代を覗いてみよう！";
+                doorBtnText.textContent = "どこでもドアを開ける";
+                doorBtnIcon.className = "fa-solid fa-door-open";
+                btnEnter.classList.add('hidden');
+                btnExit.classList.add('hidden');
+                btnToggle.classList.remove('hidden');
+            }
+        }
+
+        async function toggleCameraAR() {
+            const video = document.getElementById('camera-video');
+            const arText = document.getElementById('ar-text');
+
+            if (!isCameraActive) {
+                try {
+                    // 外カメラ（背面）優先で多段階フォールバック取得
+                    const constraintsList = [
+                        { video: { facingMode: { exact: "environment" } } },
+                        { video: { facingMode: "environment" } },
+                        { video: true }
+                    ];
+
+                    let stream = null;
+                    for (const constraint of constraintsList) {
+                        try {
+                            stream = await navigator.mediaDevices.getUserMedia(constraint);
+                            if (stream) break;
+                        } catch (e) {
+                            // 次のカメラ条件を試行
+                        }
+                    }
+
+                    if (!stream) {
+                        throw new Error("Camera stream not available");
+                    }
+
+                    video.srcObject = stream;
+                    video.muted = true; // ブラウザの自動再生ブロック回避
+                    await video.play();
+
+                    // Canvas背景を透明化し、背後のHTML5 Videoを表示
+                    video.classList.remove('hidden');
+                    scene.background = null;
+                    renderer.setClearColor(0x000000, 0);
+
+                    isCameraActive = true;
+                    arText.textContent = "ARカメラ: ON";
+                } catch (err) {
+                    console.error("Camera access error:", err);
+                    const instructionText = document.getElementById('instruction-text');
+                    if (instructionText) {
+                        instructionText.textContent = "⚠️ カメラへのアクセスができません（HTTPS環境や権限の許可が必要です）";
+                    }
+                    setTimeout(() => updateUIState(), 4000);
+                }
+            } else {
+                if (video.srcObject) {
+                    video.srcObject.getTracks().forEach(track => track.stop());
+                    video.srcObject = null;
+                }
+                video.classList.add('hidden');
+                scene.background = new THREE.Color(0x0b0f19);
+                renderer.setClearColor(0x0b0f19, 1);
+                isCameraActive = false;
+                arText.textContent = "ARカメラ: OFF";
+            }
+        }
+
+        function setupEventListeners() {
+            document.getElementById('btn-toggle-door').addEventListener('click', toggleDoor);
+            document.getElementById('btn-enter-era').addEventListener('click', enterEraWorld);
+            document.getElementById('btn-exit-era').addEventListener('click', exitEraWorld);
+
+            document.getElementById('btn-sound-toggle').addEventListener('click', () => {
+                audioEngine.enabled = !audioEngine.enabled;
+                const icon = document.getElementById('sound-icon');
+                icon.className = audioEngine.enabled ? "fa-solid fa-volume-high" : "fa-solid fa-volume-xmark";
+            });
+
+            // モーダル (解説ダイアログ)
+            const modal = document.getElementById('info-modal');
+            const openModal = () => {
+                const data = ERA_DATA[currentEra];
+                document.getElementById('modal-era-title').textContent = `${data.title} (${data.year})`;
+                document.getElementById('modal-era-subtitle').textContent = "日本の歴史探訪ガイド";
+                document.getElementById('modal-era-body').innerHTML = data.description;
+                document.getElementById('modal-era-icon').innerHTML = `<i class="fa-solid ${data.icon}" style="color:${data.color}"></i>`;
+                
+                modal.classList.remove('hidden');
+                setTimeout(() => modal.classList.remove('opacity-0'), 10);
+            };
+
+            const closeModal = () => {
+                modal.classList.add('opacity-0');
+                setTimeout(() => modal.classList.add('hidden'), 300);
+            };
+
+            document.getElementById('btn-info').addEventListener('click', openModal);
+            document.getElementById('btn-close-modal').addEventListener('click', closeModal);
+            document.getElementById('btn-modal-action').addEventListener('click', closeModal);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+
+            // ドーム背景のゆっくりとした自転
+            if (panoramaSphere) {
+                panoramaSphere.rotation.y += 0.0003;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('load', () => {
+            init3D();
+            setupEventListeners();
+        });
+    </script>
+</body>
+</html>
