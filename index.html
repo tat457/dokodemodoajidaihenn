@@ -302,7 +302,7 @@
                 year: "BC 13000年〜",
                 icon: "fa-campground",
                 color: "#d97706",
-                panoramaUrl: "1606B6C5-862A-43B1-91A5-0186BF890E47.PNG", // 360度パノラマ画像URL設定箇所
+                panoramaUrl: "", // 360度パノラマ画像URL設定箇所
                 description: "<p>縄文土器や竪穴住居が作られ、自然と調和しながら狩猟・採集・魚労を行った時代です。</p>"
             },
             yayoi: {
@@ -311,7 +311,7 @@
                 year: "BC 10世紀〜",
                 icon: "fa-wheat-awn",
                 color: "#84cc16",
-                panoramaUrl: "A86E8FBA-041C-409A-8064-062607BAA684.PNG",
+                panoramaUrl: "",
                 description: "<p>大陸から稲作文化や金属器（青銅器・鉄器）が伝わり、環濠集落や邪馬台国が誕生した時代です。</p>"
             },
             kofun: {
@@ -435,7 +435,7 @@
          * 3. Three.js 360°パノラマドーム & どこでもドア構築
          * ========================================================================= */
         let scene, camera, renderer, controls;
-        let doorGroup, doorPivot, doorLeaf;
+        let doorGroup, doorPivot, doorLeaf, doorSignMesh;
         let panoramaSphere, panoramaTextureLoader;
         let isDoorOpen = false;
         let isInsideEra = false;
@@ -539,6 +539,13 @@
             topFrame.position.set(0, frameHeight - thickness / 2, 0);
             doorGroup.add(topFrame);
 
+            // ドア上部に時代名・年代を表示する看板プレートを作成
+            const signGeo = new THREE.PlaneGeometry(1.6, 0.45);
+            const signMat = new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide });
+            doorSignMesh = new THREE.Mesh(signGeo, signMat);
+            doorSignMesh.position.set(0, frameHeight + 0.32, 0);
+            doorGroup.add(doorSignMesh);
+
             // 扉（回転軸ピボット）
             doorPivot = new THREE.Group();
             doorPivot.position.set(-frameWidth / 2 + thickness, 0, 0);
@@ -565,11 +572,105 @@
             doorGroup.add(doorPivot);
 
             scene.add(doorGroup);
+
+            // 看板の初期描画
+            updateDoorSign(currentEra);
+        }
+
+        // ドア上部の看板に時代名と年代を描画する関数
+        function updateDoorSign(eraKey) {
+            const data = ERA_DATA[eraKey];
+            if (!data || !doorSignMesh) return;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 144;
+            const ctx = canvas.getContext('2d');
+
+            // 背景プレート（丸角グラデーション）
+            const grad = ctx.createLinearGradient(0, 0, 512, 144);
+            grad.addColorStop(0, 'rgba(255, 71, 87, 0.95)');
+            grad.addColorStop(1, 'rgba(255, 107, 129, 0.95)');
+
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            if (ctx.roundRect) {
+                ctx.roundRect(10, 10, 492, 124, 20);
+            } else {
+                ctx.rect(10, 10, 492, 124);
+            }
+            ctx.fill();
+
+            // 枠線
+            ctx.lineWidth = 6;
+            ctx.strokeStyle = '#fbc02d';
+            ctx.stroke();
+
+            // 時代名テキスト
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 44px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            ctx.shadowBlur = 8;
+            ctx.fillText(data.title, 256, 52);
+
+            // 年代テキスト
+            ctx.fillStyle = '#ffeaa7';
+            ctx.font = 'bold 26px sans-serif';
+            ctx.fillText(data.year, 256, 98);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            doorSignMesh.material.map = texture;
+            doorSignMesh.material.needsUpdate = true;
+        }
+
+        /* 時空ポータル（時空の渦）テクスチャ作成 */
+        function createPortalTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            // 宇宙・時空トンネル風の背景
+            const grad = ctx.createRadialGradient(512, 256, 20, 512, 256, 500);
+            grad.addColorStop(0, '#ff4757');
+            grad.addColorStop(0.3, '#8e44ad');
+            grad.addColorStop(0.7, '#2c3e50');
+            grad.addColorStop(1, '#0b0f19');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 同心円と放射線（ポータル線）
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+            ctx.lineWidth = 2;
+            for (let r = 30; r < 600; r += 40) {
+                ctx.beginPath();
+                ctx.arc(512, 256, r, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            ctx.font = 'bold 36px sans-serif';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.fillText('🌀 時空ポータル発動中', 512, 230);
+            ctx.font = '24px sans-serif';
+            ctx.fillStyle = '#ffeaa7';
+            ctx.fillText('「時代の中に潜入する！」を押すとタイムスリップ！', 512, 290);
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function showPortalView() {
+            if (panoramaSphere) {
+                panoramaSphere.material.map = createPortalTexture();
+                panoramaSphere.material.needsUpdate = true;
+            }
         }
 
         /* 360度パノラマ表示用球体の作成 */
         function createPanoramaSphere() {
-            // 半径30の巨大な内向き球体
+            // 半径40の巨大な内向き球体
             const geometry = new THREE.SphereGeometry(40, 60, 40);
             // 内側にテクスチャを貼るため Side: BackSide
             const material = new THREE.MeshBasicMaterial({
@@ -584,8 +685,8 @@
             panoramaSphere.position.set(0, 1.2, -5);
             scene.add(panoramaSphere);
 
-            // 初期時代のパノラマ読み込み
-            loadEraPanorama('jomon');
+            // 初期表示はポータル画面
+            showPortalView();
         }
 
         // キャンバスで動的に美しい時代のグラデーションパノラマを生成（画像フォールバック用）
@@ -680,7 +781,14 @@
                     audioEngine.playClickSound(520, 0.08);
 
                     currentEra = key;
-                    loadEraPanorama(key);
+                    updateDoorSign(key);
+
+                    // 既に潜入中の場合は、即座に新しい時代の映像に切り替え
+                    if (isInsideEra) {
+                        loadEraPanorama(key);
+                    } else {
+                        showPortalView();
+                    }
                     updateUIState();
                 });
 
@@ -736,6 +844,9 @@
             isInsideEra = true;
             audioEngine.playWarpSFX();
 
+            // 潜入時に時代の360度パノラマ映像を読み込んで表示
+            loadEraPanorama(currentEra);
+
             // ドアを通り抜けてパノラマ球体の中心（Z = -5）付近へカメラ移動
             gsap.to(camera.position, {
                 x: 0,
@@ -753,6 +864,9 @@
 
         function exitEraWorld() {
             isInsideEra = false;
+            // 戻ったらポータル表示に戻す
+            showPortalView();
+
             gsap.to(camera.position, {
                 x: 0,
                 y: 1.3,
@@ -785,7 +899,7 @@
                 btnEnter.classList.add('hidden');
                 btnExit.classList.remove('hidden');
             } else if (isDoorOpen) {
-                instructionText.textContent = `ドアの中に【${eraTitle}】の映像が見えます！「潜入する」を押して中へ！`;
+                instructionText.textContent = `【${eraTitle}】へのドアが開きました！「潜入する」を押して中へ！`;
                 doorBtnText.textContent = "ドアを閉める";
                 doorBtnIcon.className = "fa-solid fa-door-closed";
                 btnEnter.classList.remove('hidden');
